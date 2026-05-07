@@ -9,11 +9,10 @@ import json
 class RegionSelector:
     def __init__(self, on_capture_callback):
         self.root = tk.Tk()
-        self.root.attributes('-alpha', 0.3)  # Transparency
+        self.root.attributes('-alpha', 0.4)  # Slightly darker transparency
         self.root.attributes("-topmost", True)
-        self.root.overrideredirect(True) # Remove window decorations
+        self.root.overrideredirect(True) 
         
-        # Get virtual screen dimensions (union of all monitors)
         with mss.mss() as sct:
             all_monitors = sct.monitors[0]
             self.v_left = all_monitors["left"]
@@ -21,11 +20,11 @@ class RegionSelector:
             self.v_width = all_monitors["width"]
             self.v_height = all_monitors["height"]
 
-        # Set window geometry to cover all monitors
         self.root.geometry(f"{self.v_width}x{self.v_height}+{self.v_left}+{self.v_top}")
         self.root.config(cursor="cross")
         
-        self.canvas = tk.Canvas(self.root, cursor="cross", bg="grey", highlightthickness=0)
+        # Use a darker background to make the "selection" pop
+        self.canvas = tk.Canvas(self.root, cursor="cross", bg="black", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         
         self.start_x = None
@@ -41,7 +40,13 @@ class RegionSelector:
     def on_button_press(self, event):
         self.start_x = event.x
         self.start_y = event.y
-        self.rect = self.canvas.create_rectangle(self.start_x, self.start_y, 1, 1, outline='red', width=2)
+        # Create a thick selection rectangle with a high-contrast color (Yellow/Cyan)
+        self.rect = self.canvas.create_rectangle(
+            self.start_x, self.start_y, 1, 1, 
+            outline='#00ffff',  # Cyan for high visibility
+            width=3, 
+            dash=(4, 4)         # Dashed line
+        )
 
     def on_move_press(self, event):
         cur_x, cur_y = (event.x, event.y)
