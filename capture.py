@@ -10,11 +10,22 @@ class RegionSelector:
     def __init__(self, on_capture_callback):
         self.root = tk.Tk()
         self.root.attributes('-alpha', 0.3)  # Transparency
-        self.root.attributes('-fullscreen', True)
         self.root.attributes("-topmost", True)
+        self.root.overrideredirect(True) # Remove window decorations
+        
+        # Get virtual screen dimensions (union of all monitors)
+        with mss.mss() as sct:
+            all_monitors = sct.monitors[0]
+            self.v_left = all_monitors["left"]
+            self.v_top = all_monitors["top"]
+            self.v_width = all_monitors["width"]
+            self.v_height = all_monitors["height"]
+
+        # Set window geometry to cover all monitors
+        self.root.geometry(f"{self.v_width}x{self.v_height}+{self.v_left}+{self.v_top}")
         self.root.config(cursor="cross")
         
-        self.canvas = tk.Canvas(self.root, cursor="cross", bg="grey")
+        self.canvas = tk.Canvas(self.root, cursor="cross", bg="grey", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         
         self.start_x = None
@@ -40,11 +51,16 @@ class RegionSelector:
         end_x, end_y = (event.x, event.y)
         self.root.destroy()
         
-        # Ensure coordinates are in correct order (left, top, right, bottom)
-        left = min(self.start_x, end_x)
-        top = min(self.start_y, end_y)
-        right = max(self.start_x, end_x)
-        bottom = max(self.start_y, end_y)
+        # Calculate absolute screen coordinates by adding the virtual screen offset
+        abs_start_x = self.v_left + self.start_x
+        abs_start_y = self.v_top + self.start_y
+        abs_end_x = self.v_left + end_x
+        abs_end_y = self.v_top + end_y
+
+        left = min(abs_start_x, abs_end_x)
+        top = min(abs_start_y, abs_end_y)
+        right = max(abs_start_x, abs_end_x)
+        bottom = max(abs_start_y, abs_end_y)
         
         if right - left > 0 and bottom - top > 0:
             self.on_capture_callback(left, top, right, bottom)
@@ -71,7 +87,10 @@ def capture_region(left, top, right, bottom):
         sct_img = sct.grab(monitor)
         mss.tools.to_png(sct_img.rgb, sct_img.size, output=filepath)
         
-    url = f"http://127.0.0.1:{port}/{filename}"
+    import socket
+    hostname = socket.gethostname()
+    local_ip = socket.gethostbyname(hostname)
+    url = f"http://{local_ip}:{port}/{filename}"
     pyperclip.copy(url)
     print(f"Captured: {filepath}")
     print(f"URL copied to clipboard: {url}")

@@ -17,7 +17,7 @@ def serve_image(filename):
 def run_server(port):
     if not os.path.exists(SAVE_DIR):
         os.makedirs(SAVE_DIR)
-    app.run(host='127.0.0.1', port=port, threaded=True)
+    app.run(host='0.0.0.0', port=port, threaded=True)
 
 if __name__ == '__main__':
     with open('config.json', 'r') as f:
