@@ -26,15 +26,43 @@ def load_config():
 
 
 def create_tray_image():
-    image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    scale = 4
+    size = 64
+    image = Image.new("RGBA", (size * scale, size * scale), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
 
-    draw.rounded_rectangle((10, 14, 54, 48), radius=7, fill="#1f2937")
-    draw.rounded_rectangle((15, 20, 49, 43), radius=4, outline="#facc15", width=4)
-    draw.rectangle((27, 10, 37, 16), fill="#1f2937")
-    draw.ellipse((29, 27, 35, 33), fill="#facc15")
+    def box(x1, y1, x2, y2):
+        return tuple(v * scale for v in (x1, y1, x2, y2))
 
-    return image
+    def width(value):
+        return value * scale
+
+    # Keep the mark large and simple so it remains legible in the Windows tray.
+    draw.rounded_rectangle(
+        box(2, 7, 62, 57),
+        radius=12 * scale,
+        fill="#0f172a",
+    )
+    draw.rounded_rectangle(
+        box(19, 2, 45, 15),
+        radius=5 * scale,
+        fill="#0f172a",
+    )
+    draw.rectangle(box(23, 11, 41, 19), fill="#0f172a")
+
+    accent = "#22d3ee"
+    draw.ellipse(
+        box(17, 17, 47, 47),
+        fill="#e0f2fe",
+        outline=accent,
+        width=width(6),
+    )
+    draw.ellipse(box(26, 26, 38, 38), fill="#0f172a")
+
+    draw.rounded_rectangle(box(45, 16, 55, 24), radius=3 * scale, fill="#facc15")
+
+    resample_filter = getattr(Image, "Resampling", Image).LANCZOS
+    return image.resize((size, size), resample_filter)
 
 
 def capture_from_tray():
