@@ -2,3 +2,5 @@ keyboard
 mss
 Flask
 pyperclip
+pystray
+Pillow
