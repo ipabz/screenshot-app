@@ -7,7 +7,13 @@ from PIL import Image
 
 from config_manager import load_config, save_config
 from gallery_store import GalleryStore
-from preview import fit_image_size, format_file_size, get_preview_url, image_file_to_dib_bytes
+from preview import (
+    fit_image_size,
+    format_file_size,
+    get_preview_url,
+    image_file_to_dib_bytes,
+    render_annotations,
+)
 from server import create_app
 
 
@@ -87,6 +93,23 @@ class PreviewTests(unittest.TestCase):
 
         self.assertNotEqual(dib_bytes[:2], b"BM")
         self.assertEqual(int.from_bytes(dib_bytes[:4], "little"), 40)
+
+    def test_render_annotations_draws_on_image(self):
+        image = Image.new("RGB", (40, 40), "#ffffff")
+        annotated = render_annotations(
+            image,
+            [
+                {
+                    "tool": "rectangle",
+                    "color": "#ef4444",
+                    "width": 4,
+                    "start": (5, 5),
+                    "end": (25, 25),
+                }
+            ],
+        )
+
+        self.assertNotEqual(annotated.getpixel((5, 5)), (255, 255, 255))
 
 
 class ServerTests(unittest.TestCase):

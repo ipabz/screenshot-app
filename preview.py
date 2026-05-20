@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import ctypes
+import math
 from io import BytesIO
 from pathlib import Path
 import tkinter as tk
 
-from PIL import Image, ImageTk
+from PIL import Image, ImageDraw, ImageTk
 import pyperclip
 
 
@@ -18,6 +19,7 @@ BORDER = "#d8e0e8"
 TEXT = "#17202a"
 MUTED = "#5b6775"
 SUCCESS = "#0f766e"
+ERROR = "#9b1c31"
 PRIMARY = "#0f6f8f"
 PRIMARY_HOVER = "#0c5f7a"
 SECONDARY = "#ffffff"
@@ -25,6 +27,13 @@ SECONDARY_HOVER = "#f0f6f9"
 SECONDARY_TEXT = "#1f3442"
 MIN_WINDOW_WIDTH = 720
 MIN_WINDOW_HEIGHT = 460
+ANNOTATION_WIDTH = 5
+ANNOTATION_TOOLS = {
+    "pen": "Pen",
+    "rectangle": "Box",
+    "arrow": "Arrow",
+}
+ANNOTATION_COLORS = ["#ef4444", "#f59e0b", "#2563eb", "#111827"]
 
 try:
     USER32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -59,18 +68,26 @@ def _clipboard_error(message):
     raise RuntimeError(message)
 
 
+def image_to_dib_bytes(image):
+    with BytesIO() as output:
+        image.convert("RGB").save(output, "BMP")
+        return output.getvalue()[14:]
+
+
 def image_file_to_dib_bytes(image_path):
     with Image.open(image_path) as image:
-        with BytesIO() as output:
-            image.convert("RGB").save(output, "BMP")
-            return output.getvalue()[14:]
+        return image_to_dib_bytes(image)
 
 
-def copy_image_to_clipboard(image_path):
+def copy_image_to_clipboard(image_source):
     if USER32 is None or KERNEL32 is None:
         raise RuntimeError("Image clipboard copy is only supported on Windows.")
 
-    dib_bytes = image_file_to_dib_bytes(image_path)
+    if isinstance(image_source, Image.Image):
+        dib_bytes = image_to_dib_bytes(image_source)
+    else:
+        dib_bytes = image_file_to_dib_bytes(image_source)
+
     handle = KERNEL32.GlobalAlloc(GMEM_MOVEABLE, len(dib_bytes))
     if not handle:
         _clipboard_error("Could not allocate clipboard memory.")
@@ -123,6 +140,55 @@ def fit_image_size(image_size, max_size):
     return max(1, int(image_width * scale)), max(1, int(image_height * scale))
 
 
+def draw_arrow(draw, start, end, color, width):
+    draw.line([start, end], fill=color, width=width)
+
+    start_x, start_y = start
+    end_x, end_y = end
+    angle = math.atan2(end_y - start_y, end_x - start_x)
+    arrow_size = max(width * 4, 14)
+    left = (
+        end_x - arrow_size * math.cos(angle - math.pi / 6),
+        end_y - arrow_size * math.sin(angle - math.pi / 6),
+    )
+    right = (
+        end_x - arrow_size * math.cos(angle + math.pi / 6),
+        end_y - arrow_size * math.sin(angle + math.pi / 6),
+    )
+    draw.polygon([end, left, right], fill=color)
+
+
+def draw_annotation(draw, annotation):
+    tool = annotation["tool"]
+    color = annotation["color"]
+    width = annotation["width"]
+
+    if tool == "pen":
+        points = annotation["points"]
+        if len(points) > 1:
+            draw.line(points, fill=color, width=width, joint="curve")
+        return
+
+    start = annotation["start"]
+    end = annotation["end"]
+    if tool == "rectangle":
+        left = min(start[0], end[0])
+        top = min(start[1], end[1])
+        right = max(start[0], end[0])
+        bottom = max(start[1], end[1])
+        draw.rectangle([left, top, right, bottom], outline=color, width=width)
+    elif tool == "arrow":
+        draw_arrow(draw, start, end, color, width)
+
+
+def render_annotations(image, annotations):
+    output = image.copy()
+    draw = ImageDraw.Draw(output)
+    for annotation in annotations:
+        draw_annotation(draw, annotation)
+    return output
+
+
 class CapturePreview:
     def __init__(self, capture_result):
         self.capture_result = capture_result
@@ -135,10 +201,19 @@ class CapturePreview:
         self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         self.root.configure(bg=WINDOW_BG)
         self.photo = None
-        self.image_label = None
+        self.preview_canvas = None
         self.resize_after_id = None
         self.status_var = tk.StringVar(value="")
         self.status_label = None
+        self.annotations = []
+        self.current_annotation = None
+        self.active_tool = "pen"
+        self.active_color = ANNOTATION_COLORS[0]
+        self.tool_buttons = {}
+        self.color_buttons = {}
+        self.image_origin = (0, 0)
+        self.display_size = (1, 1)
+        self.display_scale = 1.0
 
         self.build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.close)
@@ -153,9 +228,10 @@ class CapturePreview:
         shell = tk.Frame(self.root, bg=WINDOW_BG, padx=16, pady=16)
         shell.grid(row=0, column=0, sticky="nsew")
         shell.columnconfigure(0, weight=1)
-        shell.rowconfigure(1, weight=1)
+        shell.rowconfigure(2, weight=1)
 
         self.build_header(shell)
+        self.build_annotation_bar(shell)
         self.build_preview_area(shell)
         self.build_action_bar(shell)
 
@@ -188,6 +264,58 @@ class CapturePreview:
         )
         details.grid(row=1, column=0, sticky="ew", pady=(3, 0))
 
+    def build_annotation_bar(self, parent):
+        bar = tk.Frame(parent, bg=WINDOW_BG)
+        bar.grid(row=1, column=0, sticky="ew", pady=(0, 12))
+        bar.columnconfigure(8, weight=1)
+
+        label = tk.Label(
+            bar,
+            text="Annotate",
+            bg=WINDOW_BG,
+            fg=MUTED,
+            font=("Segoe UI", 9, "bold"),
+        )
+        label.grid(row=0, column=0, sticky="w", padx=(0, 8))
+
+        column = 1
+        for tool, text in ANNOTATION_TOOLS.items():
+            button = self.create_toolbar_button(
+                bar,
+                text,
+                lambda selected_tool=tool: self.set_active_tool(selected_tool),
+            )
+            button.grid(row=0, column=column, padx=(0, 6))
+            self.tool_buttons[tool] = button
+            column += 1
+
+        swatch_group = tk.Frame(bar, bg=WINDOW_BG)
+        swatch_group.grid(row=0, column=column, padx=(4, 8))
+        for index, color in enumerate(ANNOTATION_COLORS):
+            swatch = tk.Button(
+                swatch_group,
+                bg=color,
+                activebackground=color,
+                relief="flat",
+                bd=0,
+                width=2,
+                height=1,
+                cursor="hand2",
+                command=lambda selected_color=color: self.set_active_color(selected_color),
+                takefocus=True,
+            )
+            swatch.grid(row=0, column=index, padx=(0, 5))
+            self.color_buttons[color] = swatch
+
+        column += 1
+        self.create_toolbar_button(bar, "Undo", self.undo_annotation).grid(
+            row=0, column=column, padx=(0, 6)
+        )
+        self.create_toolbar_button(bar, "Clear", self.clear_annotations).grid(
+            row=0, column=column + 1
+        )
+        self.refresh_annotation_controls()
+
     def build_preview_area(self, parent):
         frame = tk.Frame(
             parent,
@@ -197,7 +325,7 @@ class CapturePreview:
             highlightbackground=BORDER,
             highlightthickness=1,
         )
-        frame.grid(row=1, column=0, sticky="nsew")
+        frame.grid(row=2, column=0, sticky="nsew")
         frame.columnconfigure(0, weight=1)
         frame.rowconfigure(0, weight=1)
 
@@ -206,14 +334,22 @@ class CapturePreview:
         image_border.columnconfigure(0, weight=1)
         image_border.rowconfigure(0, weight=1)
 
-        self.photo = ImageTk.PhotoImage(self.get_preview_image())
-        self.image_label = tk.Label(image_border, image=self.photo, bg=PREVIEW_BG, bd=0)
-        self.image_label.grid(row=0, column=0, sticky="nsew")
-        self.image_label.bind("<Configure>", self.schedule_preview_resize)
+        self.preview_canvas = tk.Canvas(
+            image_border,
+            bg=PREVIEW_BG,
+            bd=0,
+            highlightthickness=0,
+            cursor="crosshair",
+        )
+        self.preview_canvas.grid(row=0, column=0, sticky="nsew")
+        self.preview_canvas.bind("<Configure>", self.schedule_preview_resize)
+        self.preview_canvas.bind("<ButtonPress-1>", self.start_annotation)
+        self.preview_canvas.bind("<B1-Motion>", self.update_annotation)
+        self.preview_canvas.bind("<ButtonRelease-1>", self.finish_annotation)
 
     def build_action_bar(self, parent):
         action_bar = tk.Frame(parent, bg=WINDOW_BG)
-        action_bar.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        action_bar.grid(row=3, column=0, sticky="ew", pady=(12, 0))
         action_bar.columnconfigure(0, weight=1)
 
         self.status_label = tk.Label(
@@ -274,6 +410,62 @@ class CapturePreview:
         button.bind("<Leave>", lambda _event: button.configure(bg=background))
         return wrapper
 
+    def create_toolbar_button(self, parent, text, command):
+        button = tk.Button(
+            parent,
+            text=text,
+            command=command,
+            bg=SECONDARY,
+            fg=SECONDARY_TEXT,
+            activebackground=SECONDARY_HOVER,
+            activeforeground=SECONDARY_TEXT,
+            relief="flat",
+            bd=0,
+            padx=10,
+            pady=5,
+            cursor="hand2",
+            font=("Segoe UI", 9, "bold"),
+            highlightthickness=1,
+            highlightbackground=BORDER,
+            highlightcolor="#94d2bd",
+            takefocus=True,
+        )
+        return button
+
+    def set_active_tool(self, tool):
+        self.active_tool = tool
+        self.refresh_annotation_controls()
+
+    def set_active_color(self, color):
+        self.active_color = color
+        self.refresh_annotation_controls()
+
+    def refresh_annotation_controls(self):
+        for tool, button in self.tool_buttons.items():
+            if tool == self.active_tool:
+                button.configure(bg=PRIMARY, fg="#ffffff", activebackground=PRIMARY_HOVER)
+            else:
+                button.configure(bg=SECONDARY, fg=SECONDARY_TEXT, activebackground=SECONDARY_HOVER)
+
+        for color, button in self.color_buttons.items():
+            button.configure(
+                highlightthickness=2 if color == self.active_color else 1,
+                highlightbackground=TEXT if color == self.active_color else BORDER,
+            )
+
+    def undo_annotation(self):
+        if self.annotations:
+            self.annotations.pop()
+            self.set_status("Removed last annotation")
+            self.redraw_preview()
+
+    def clear_annotations(self):
+        if self.annotations:
+            self.annotations.clear()
+            self.current_annotation = None
+            self.set_status("Cleared annotations")
+            self.redraw_preview()
+
     def load_original_image(self):
         with Image.open(self.image_path) as image:
             return image.copy()
@@ -298,44 +490,171 @@ class CapturePreview:
 
     def resize_preview(self, max_width, max_height):
         self.resize_after_id = None
-        if self.image_label is None or max_width <= 1 or max_height <= 1:
+        if self.preview_canvas is None or max_width <= 1 or max_height <= 1:
             return
 
         preview_image = self.get_preview_image((max_width, max_height))
+        self.display_size = preview_image.size
+        self.display_scale = self.display_size[0] / self.original_image.size[0]
+        self.image_origin = (
+            max((max_width - self.display_size[0]) // 2, 0),
+            max((max_height - self.display_size[1]) // 2, 0),
+        )
         self.photo = ImageTk.PhotoImage(preview_image)
-        self.image_label.configure(image=self.photo)
+        self.redraw_preview()
+
+    def redraw_preview(self):
+        if self.preview_canvas is None or self.photo is None:
+            return
+
+        self.preview_canvas.delete("all")
+        origin_x, origin_y = self.image_origin
+        self.preview_canvas.create_image(origin_x, origin_y, image=self.photo, anchor="nw")
+        for annotation in [*self.annotations, self.current_annotation]:
+            if annotation is not None:
+                self.draw_canvas_annotation(annotation)
+
+    def draw_canvas_annotation(self, annotation):
+        tool = annotation["tool"]
+        color = annotation["color"]
+        width = max(2, int(annotation["width"] * self.display_scale))
+
+        if tool == "pen":
+            points = [self.image_to_canvas_point(point) for point in annotation["points"]]
+            if len(points) > 1:
+                coords = [coord for point in points for coord in point]
+                self.preview_canvas.create_line(*coords, fill=color, width=width, smooth=True)
+            return
+
+        start = self.image_to_canvas_point(annotation["start"])
+        end = self.image_to_canvas_point(annotation["end"])
+        if tool == "rectangle":
+            self.preview_canvas.create_rectangle(*start, *end, outline=color, width=width)
+        elif tool == "arrow":
+            self.preview_canvas.create_line(*start, *end, fill=color, width=width, arrow=tk.LAST)
+
+    def image_to_canvas_point(self, point):
+        origin_x, origin_y = self.image_origin
+        return (
+            origin_x + point[0] * self.display_scale,
+            origin_y + point[1] * self.display_scale,
+        )
+
+    def canvas_to_image_point(self, x, y):
+        origin_x, origin_y = self.image_origin
+        image_x = (x - origin_x) / self.display_scale
+        image_y = (y - origin_y) / self.display_scale
+        if image_x < 0 or image_y < 0:
+            return None
+        if image_x > self.original_image.size[0] or image_y > self.original_image.size[1]:
+            return None
+        return (
+            min(max(image_x, 0), self.original_image.size[0] - 1),
+            min(max(image_y, 0), self.original_image.size[1] - 1),
+        )
+
+    def start_annotation(self, event):
+        point = self.canvas_to_image_point(event.x, event.y)
+        if point is None:
+            self.current_annotation = None
+            return
+
+        if self.active_tool == "pen":
+            self.current_annotation = self.new_annotation(points=[point])
+        else:
+            self.current_annotation = self.new_annotation(start=point, end=point)
+
+    def update_annotation(self, event):
+        if self.current_annotation is None:
+            return
+
+        point = self.canvas_to_image_point(event.x, event.y)
+        if point is None:
+            return
+
+        if self.current_annotation["tool"] == "pen":
+            self.current_annotation["points"].append(point)
+        else:
+            self.current_annotation["end"] = point
+        self.redraw_preview()
+
+    def finish_annotation(self, event):
+        if self.current_annotation is None:
+            return
+
+        self.update_annotation(event)
+        if self.annotation_has_size(self.current_annotation):
+            self.annotations.append(self.current_annotation)
+            self.set_status("Annotation added")
+        self.current_annotation = None
+        self.redraw_preview()
+
+    def new_annotation(self, **values):
+        annotation = {
+            "tool": self.active_tool,
+            "color": self.active_color,
+            "width": ANNOTATION_WIDTH,
+        }
+        annotation.update(values)
+        return annotation
+
+    def annotation_has_size(self, annotation):
+        if annotation["tool"] == "pen":
+            return len(annotation["points"]) > 1
+
+        start = annotation["start"]
+        end = annotation["end"]
+        return abs(start[0] - end[0]) > 2 or abs(start[1] - end[1]) > 2
+
+    def get_output_image(self):
+        return render_annotations(self.original_image, self.annotations)
+
+    def save_output_image(self):
+        output = self.get_output_image()
+        output.save(self.image_path)
+        self.capture_result["file_size"] = self.image_path.stat().st_size
 
     def copy_image(self):
         try:
-            copy_image_to_clipboard(self.image_path)
+            copy_image_to_clipboard(self.get_output_image())
         except Exception as exc:
-            self.status_var.set(f"Could not copy image: {exc}")
+            self.set_status(f"Could not copy image: {exc}", error=True)
             return
 
         self.finish("Copied image to clipboard")
 
     def copy_url(self):
         try:
+            self.save_output_image()
             pyperclip.copy(get_preview_url(self.capture_result))
         except Exception as exc:
-            self.status_var.set(f"Could not copy URL: {exc}")
+            self.set_status(f"Could not copy URL: {exc}", error=True)
             return
 
         self.finish("Copied image URL")
 
     def copy_path(self):
         try:
+            self.save_output_image()
             pyperclip.copy(str(self.image_path))
         except Exception as exc:
-            self.status_var.set(f"Could not copy path: {exc}")
+            self.set_status(f"Could not copy path: {exc}", error=True)
             return
 
         self.finish("Copied image path")
 
-    def finish(self, message):
+    def set_status(self, message, success=False, error=False):
         if self.status_label is not None:
-            self.status_label.configure(fg=SUCCESS)
+            if error:
+                self.status_label.configure(fg=ERROR)
+            elif success:
+                self.status_label.configure(fg=SUCCESS)
+            else:
+                self.status_label.configure(fg=MUTED)
         self.status_var.set(message)
+
+    def finish(self, message):
+        self.set_status(message, success=True)
 
     def center(self):
         self.root.update_idletasks()
