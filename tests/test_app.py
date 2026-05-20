@@ -7,7 +7,7 @@ from PIL import Image
 
 from config_manager import load_config, save_config
 from gallery_store import GalleryStore
-from preview import get_preview_url, image_file_to_dib_bytes
+from preview import fit_image_size, get_preview_url, image_file_to_dib_bytes
 from server import create_app
 
 
@@ -59,6 +59,10 @@ class GalleryStoreTests(unittest.TestCase):
 
 
 class PreviewTests(unittest.TestCase):
+    def test_fit_image_size_preserves_aspect_ratio(self):
+        self.assertEqual(fit_image_size((1600, 900), (800, 800)), (800, 450))
+        self.assertEqual(fit_image_size((900, 1600), (800, 800)), (450, 800))
+
     def test_get_preview_url_prefers_lan_url_when_available(self):
         self.assertEqual(
             get_preview_url({"local_url": "http://127.0.0.1/image", "lan_url": "http://lan/image"}),
