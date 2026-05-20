@@ -7,7 +7,7 @@ from PIL import Image
 
 from config_manager import load_config, save_config
 from gallery_store import GalleryStore
-from preview import fit_image_size, get_preview_url, image_file_to_dib_bytes
+from preview import fit_image_size, format_file_size, get_preview_url, image_file_to_dib_bytes
 from server import create_app
 
 
@@ -59,6 +59,11 @@ class GalleryStoreTests(unittest.TestCase):
 
 
 class PreviewTests(unittest.TestCase):
+    def test_format_file_size_uses_readable_units(self):
+        self.assertEqual(format_file_size(512), "512 B")
+        self.assertEqual(format_file_size(1536), "1.5 KB")
+        self.assertEqual(format_file_size(2 * 1024 * 1024), "2.0 MB")
+
     def test_fit_image_size_preserves_aspect_ratio(self):
         self.assertEqual(fit_image_size((1600, 900), (800, 800)), (800, 450))
         self.assertEqual(fit_image_size((900, 1600), (800, 800)), (450, 800))

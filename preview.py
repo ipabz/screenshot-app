@@ -17,13 +17,14 @@ PREVIEW_BG = "#edf2f7"
 BORDER = "#d8e0e8"
 TEXT = "#17202a"
 MUTED = "#5b6775"
+SUCCESS = "#0f766e"
 PRIMARY = "#0f6f8f"
 PRIMARY_HOVER = "#0c5f7a"
 SECONDARY = "#ffffff"
 SECONDARY_HOVER = "#f0f6f9"
 SECONDARY_TEXT = "#1f3442"
-MIN_WINDOW_WIDTH = 540
-MIN_WINDOW_HEIGHT = 360
+MIN_WINDOW_WIDTH = 720
+MIN_WINDOW_HEIGHT = 460
 
 try:
     USER32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -104,6 +105,14 @@ def get_preview_url(capture_result):
     return capture_result.get("lan_url") or capture_result["local_url"]
 
 
+def format_file_size(value):
+    if value < 1024:
+        return f"{value} B"
+    if value < 1024 * 1024:
+        return f"{value / 1024:.1f} KB"
+    return f"{value / 1024 / 1024:.1f} MB"
+
+
 def fit_image_size(image_size, max_size):
     image_width, image_height = image_size
     max_width, max_height = max_size
@@ -129,6 +138,7 @@ class CapturePreview:
         self.image_label = None
         self.resize_after_id = None
         self.status_var = tk.StringVar(value="")
+        self.status_label = None
 
         self.build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.close)
@@ -140,65 +150,97 @@ class CapturePreview:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
 
-        frame = tk.Frame(
-            self.root,
-            bg=SURFACE_BG,
-            padx=18,
-            pady=18,
-            highlightbackground=BORDER,
-            highlightthickness=1,
-        )
-        frame.grid(row=0, column=0, sticky="nsew")
-        frame.columnconfigure(0, weight=1)
-        frame.rowconfigure(0, weight=1)
+        shell = tk.Frame(self.root, bg=WINDOW_BG, padx=16, pady=16)
+        shell.grid(row=0, column=0, sticky="nsew")
+        shell.columnconfigure(0, weight=1)
+        shell.rowconfigure(1, weight=1)
 
-        self.photo = ImageTk.PhotoImage(self.get_preview_image())
-        self.image_label = tk.Label(frame, image=self.photo, bg=PREVIEW_BG, bd=0)
-        self.image_label.grid(row=0, column=0, sticky="nsew")
-        self.image_label.bind("<Configure>", self.schedule_preview_resize)
+        self.build_header(shell)
+        self.build_preview_area(shell)
+        self.build_action_bar(shell)
+
+    def build_header(self, parent):
+        header = tk.Frame(parent, bg=WINDOW_BG)
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        header.columnconfigure(0, weight=1)
+
+        title = tk.Label(
+            header,
+            text="Screenshot captured",
+            bg=WINDOW_BG,
+            fg=TEXT,
+            anchor="w",
+            font=("Segoe UI", 13, "bold"),
+        )
+        title.grid(row=0, column=0, sticky="ew")
 
         filename = self.capture_result["filename"]
         width = self.capture_result["width"]
         height = self.capture_result["height"]
+        file_size = format_file_size(self.capture_result["file_size"])
         details = tk.Label(
-            frame,
-            text=f"{filename} - {width} x {height}",
-            anchor="center",
+            header,
+            text=f"{filename}   {width} x {height}   {file_size}",
+            bg=WINDOW_BG,
+            fg=MUTED,
+            anchor="w",
+            font=("Segoe UI", 9),
+        )
+        details.grid(row=1, column=0, sticky="ew", pady=(3, 0))
+
+    def build_preview_area(self, parent):
+        frame = tk.Frame(
+            parent,
             bg=SURFACE_BG,
+            padx=12,
+            pady=12,
+            highlightbackground=BORDER,
+            highlightthickness=1,
+        )
+        frame.grid(row=1, column=0, sticky="nsew")
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(0, weight=1)
+
+        image_border = tk.Frame(frame, bg=BORDER, padx=1, pady=1)
+        image_border.grid(row=0, column=0, sticky="nsew")
+        image_border.columnconfigure(0, weight=1)
+        image_border.rowconfigure(0, weight=1)
+
+        self.photo = ImageTk.PhotoImage(self.get_preview_image())
+        self.image_label = tk.Label(image_border, image=self.photo, bg=PREVIEW_BG, bd=0)
+        self.image_label.grid(row=0, column=0, sticky="nsew")
+        self.image_label.bind("<Configure>", self.schedule_preview_resize)
+
+    def build_action_bar(self, parent):
+        action_bar = tk.Frame(parent, bg=WINDOW_BG)
+        action_bar.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        action_bar.columnconfigure(0, weight=1)
+
+        self.status_label = tk.Label(
+            action_bar,
+            textvariable=self.status_var,
+            anchor="w",
+            bg=WINDOW_BG,
             fg=MUTED,
             font=("Segoe UI", 9),
         )
-        details.grid(row=1, column=0, sticky="ew", pady=(12, 10))
+        self.status_label.grid(row=0, column=0, sticky="ew", padx=(0, 12))
 
-        actions = tk.Frame(frame, bg=SURFACE_BG)
-        actions.grid(row=2, column=0, sticky="ew")
+        actions = tk.Frame(action_bar, bg=WINDOW_BG)
+        actions.grid(row=0, column=1, sticky="e")
 
         self.create_action_button(
             actions,
             "Copy to clipboard",
             self.copy_image,
             primary=True,
-        ).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ).grid(row=0, column=0, padx=(0, 8))
         self.create_action_button(actions, "Copy image URL", self.copy_url).grid(
-            row=0, column=1, sticky="ew", padx=6
+            row=0, column=1, padx=(0, 8)
         )
         self.create_action_button(actions, "Copy image path", self.copy_path).grid(
-            row=0, column=2, sticky="ew", padx=(6, 0)
+            row=0, column=2
         )
-
-        for column in range(3):
-            actions.columnconfigure(column, weight=1, uniform="actions")
-
-        status = tk.Label(
-            frame,
-            textvariable=self.status_var,
-            anchor="center",
-            bg=SURFACE_BG,
-            fg=MUTED,
-            font=("Segoe UI", 9),
-            height=1,
-        )
-        status.grid(row=3, column=0, sticky="ew", pady=(10, 0))
 
     def create_action_button(self, parent, text, command, primary=False):
         background = PRIMARY if primary else SECONDARY
@@ -219,6 +261,7 @@ class CapturePreview:
             bd=0,
             padx=14,
             pady=9,
+            width=18,
             cursor="hand2",
             font=("Segoe UI", 9, "bold"),
             highlightthickness=1,
@@ -290,8 +333,9 @@ class CapturePreview:
         self.finish("Copied image path")
 
     def finish(self, message):
+        if self.status_label is not None:
+            self.status_label.configure(fg=SUCCESS)
         self.status_var.set(message)
-        self.root.after(350, self.close)
 
     def center(self):
         self.root.update_idletasks()
