@@ -16,24 +16,30 @@ WINDOW_BG = "#f5f7fa"
 SURFACE_BG = "#ffffff"
 PREVIEW_BG = "#edf2f7"
 BORDER = "#d8e0e8"
+SOFT_BORDER = "#edf1f5"
 TEXT = "#17202a"
 MUTED = "#5b6775"
 SUCCESS = "#0f766e"
 ERROR = "#9b1c31"
 PRIMARY = "#0f6f8f"
 PRIMARY_HOVER = "#0c5f7a"
+SELECTED_BG = "#e8f4f8"
 SECONDARY = "#ffffff"
 SECONDARY_HOVER = "#f0f6f9"
 SECONDARY_TEXT = "#1f3442"
 MIN_WINDOW_WIDTH = 720
 MIN_WINDOW_HEIGHT = 460
-ANNOTATION_WIDTH = 5
 ANNOTATION_TOOLS = {
-    "pen": "Pen",
+    "pen": "Draw",
     "rectangle": "Box",
     "arrow": "Arrow",
 }
 ANNOTATION_COLORS = ["#ef4444", "#f59e0b", "#2563eb", "#111827"]
+ANNOTATION_WIDTHS = {
+    "S": 3,
+    "M": 5,
+    "L": 8,
+}
 
 try:
     USER32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -209,8 +215,10 @@ class CapturePreview:
         self.current_annotation = None
         self.active_tool = "pen"
         self.active_color = ANNOTATION_COLORS[0]
+        self.active_width = ANNOTATION_WIDTHS["M"]
         self.tool_buttons = {}
         self.color_buttons = {}
+        self.width_buttons = {}
         self.image_origin = (0, 0)
         self.display_size = (1, 1)
         self.display_scale = 1.0
@@ -265,54 +273,70 @@ class CapturePreview:
         details.grid(row=1, column=0, sticky="ew", pady=(3, 0))
 
     def build_annotation_bar(self, parent):
-        bar = tk.Frame(parent, bg=WINDOW_BG)
-        bar.grid(row=1, column=0, sticky="ew", pady=(0, 12))
+        toolbar_shell = tk.Frame(parent, bg=BORDER, padx=1, pady=1)
+        toolbar_shell.grid(row=1, column=0, sticky="ew", pady=(0, 12))
+        toolbar_shell.columnconfigure(0, weight=1)
+
+        bar = tk.Frame(toolbar_shell, bg=SURFACE_BG, padx=12, pady=8)
+        bar.grid(row=0, column=0, sticky="ew")
         bar.columnconfigure(8, weight=1)
 
-        label = tk.Label(
-            bar,
-            text="Annotate",
-            bg=WINDOW_BG,
-            fg=MUTED,
-            font=("Segoe UI", 9, "bold"),
-        )
-        label.grid(row=0, column=0, sticky="w", padx=(0, 8))
-
-        column = 1
+        tools_group = self.create_toolbar_group(bar, "Tools")
+        tools_group.grid(row=0, column=0, sticky="w", padx=(0, 14))
         for tool, text in ANNOTATION_TOOLS.items():
             button = self.create_toolbar_button(
-                bar,
+                tools_group,
                 text,
                 lambda selected_tool=tool: self.set_active_tool(selected_tool),
             )
-            button.grid(row=0, column=column, padx=(0, 6))
+            button.grid(row=1, column=len(self.tool_buttons), sticky="ew", padx=(0, 6))
             self.tool_buttons[tool] = button
-            column += 1
 
-        swatch_group = tk.Frame(bar, bg=WINDOW_BG)
-        swatch_group.grid(row=0, column=column, padx=(4, 8))
+        self.create_toolbar_divider(bar).grid(row=0, column=1, sticky="ns", padx=(0, 14))
+
+        color_group = self.create_toolbar_group(bar, "Color")
+        color_group.grid(row=0, column=2, sticky="w", padx=(0, 14))
         for index, color in enumerate(ANNOTATION_COLORS):
+            swatch_wrapper = tk.Frame(color_group, bg=BORDER, padx=2, pady=2)
+            swatch_wrapper.grid(row=1, column=index, padx=(0, 6))
             swatch = tk.Button(
-                swatch_group,
+                swatch_wrapper,
                 bg=color,
                 activebackground=color,
                 relief="flat",
                 bd=0,
-                width=2,
+                width=3,
                 height=1,
                 cursor="hand2",
                 command=lambda selected_color=color: self.set_active_color(selected_color),
                 takefocus=True,
             )
-            swatch.grid(row=0, column=index, padx=(0, 5))
-            self.color_buttons[color] = swatch
+            swatch.pack()
+            self.color_buttons[color] = swatch_wrapper
 
-        column += 1
-        self.create_toolbar_button(bar, "Undo", self.undo_annotation).grid(
-            row=0, column=column, padx=(0, 6)
+        self.create_toolbar_divider(bar).grid(row=0, column=3, sticky="ns", padx=(0, 14))
+
+        width_group = self.create_toolbar_group(bar, "Stroke")
+        width_group.grid(row=0, column=4, sticky="w", padx=(0, 14))
+        for label, width in ANNOTATION_WIDTHS.items():
+            button = self.create_toolbar_button(
+                width_group,
+                label,
+                lambda selected_width=width: self.set_active_width(selected_width),
+                compact=True,
+            )
+            button.grid(row=1, column=len(self.width_buttons), sticky="ew", padx=(0, 6))
+            self.width_buttons[width] = button
+
+        self.create_toolbar_divider(bar).grid(row=0, column=5, sticky="ns", padx=(0, 14))
+
+        edit_group = self.create_toolbar_group(bar, "Edit")
+        edit_group.grid(row=0, column=6, sticky="w")
+        self.create_toolbar_button(edit_group, "Undo", self.undo_annotation).grid(
+            row=1, column=0, padx=(0, 6)
         )
-        self.create_toolbar_button(bar, "Clear", self.clear_annotations).grid(
-            row=0, column=column + 1
+        self.create_toolbar_button(edit_group, "Clear", self.clear_annotations).grid(
+            row=1, column=1
         )
         self.refresh_annotation_controls()
 
@@ -410,7 +434,23 @@ class CapturePreview:
         button.bind("<Leave>", lambda _event: button.configure(bg=background))
         return wrapper
 
-    def create_toolbar_button(self, parent, text, command):
+    def create_toolbar_group(self, parent, title):
+        group = tk.Frame(parent, bg=SURFACE_BG)
+        label = tk.Label(
+            group,
+            text=title,
+            bg=SURFACE_BG,
+            fg=MUTED,
+            anchor="w",
+            font=("Segoe UI", 8, "bold"),
+        )
+        label.grid(row=0, column=0, columnspan=8, sticky="w", pady=(0, 5))
+        return group
+
+    def create_toolbar_divider(self, parent):
+        return tk.Frame(parent, bg=SOFT_BORDER, width=1)
+
+    def create_toolbar_button(self, parent, text, command, compact=False):
         button = tk.Button(
             parent,
             text=text,
@@ -421,8 +461,9 @@ class CapturePreview:
             activeforeground=SECONDARY_TEXT,
             relief="flat",
             bd=0,
-            padx=10,
+            padx=8 if compact else 10,
             pady=5,
+            width=3 if compact else 8,
             cursor="hand2",
             font=("Segoe UI", 9, "bold"),
             highlightthickness=1,
@@ -440,18 +481,45 @@ class CapturePreview:
         self.active_color = color
         self.refresh_annotation_controls()
 
+    def set_active_width(self, width):
+        self.active_width = width
+        self.refresh_annotation_controls()
+
     def refresh_annotation_controls(self):
         for tool, button in self.tool_buttons.items():
             if tool == self.active_tool:
-                button.configure(bg=PRIMARY, fg="#ffffff", activebackground=PRIMARY_HOVER)
+                button.configure(
+                    bg=SELECTED_BG,
+                    fg=PRIMARY,
+                    activebackground=SELECTED_BG,
+                    highlightbackground=PRIMARY,
+                )
             else:
-                button.configure(bg=SECONDARY, fg=SECONDARY_TEXT, activebackground=SECONDARY_HOVER)
+                button.configure(
+                    bg=SECONDARY,
+                    fg=SECONDARY_TEXT,
+                    activebackground=SECONDARY_HOVER,
+                    highlightbackground=BORDER,
+                )
 
-        for color, button in self.color_buttons.items():
-            button.configure(
-                highlightthickness=2 if color == self.active_color else 1,
-                highlightbackground=TEXT if color == self.active_color else BORDER,
-            )
+        for color, wrapper in self.color_buttons.items():
+            wrapper.configure(bg=TEXT if color == self.active_color else BORDER)
+
+        for width, button in self.width_buttons.items():
+            if width == self.active_width:
+                button.configure(
+                    bg=SELECTED_BG,
+                    fg=PRIMARY,
+                    activebackground=SELECTED_BG,
+                    highlightbackground=PRIMARY,
+                )
+            else:
+                button.configure(
+                    bg=SECONDARY,
+                    fg=SECONDARY_TEXT,
+                    activebackground=SECONDARY_HOVER,
+                    highlightbackground=BORDER,
+                )
 
     def undo_annotation(self):
         if self.annotations:
@@ -593,7 +661,7 @@ class CapturePreview:
         annotation = {
             "tool": self.active_tool,
             "color": self.active_color,
-            "width": ANNOTATION_WIDTH,
+            "width": self.active_width,
         }
         annotation.update(values)
         return annotation
