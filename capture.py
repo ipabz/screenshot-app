@@ -1,6 +1,5 @@
 import tkinter as tk
-import threading
-import keyboard
+import ctypes
 import mss
 import mss.tools
 from datetime import datetime
@@ -9,6 +8,21 @@ import pyperclip
 
 from config_manager import get_database_path, get_lan_base_url, get_local_base_url, load_config
 from gallery_store import GalleryStore
+
+
+VK_ESCAPE = 0x1B
+
+try:
+    USER32 = ctypes.windll.user32
+    USER32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+    USER32.GetAsyncKeyState.restype = ctypes.c_short
+except AttributeError:
+    USER32 = None
+
+
+def is_escape_pressed():
+    return USER32 is not None and bool(USER32.GetAsyncKeyState(VK_ESCAPE) & 0x8000)
+
 
 class RegionSelector:
     def __init__(self, on_capture_callback):
@@ -38,8 +52,6 @@ class RegionSelector:
         self.size_label_bg = None
         self.size_label = None
         self.closed = False
-        self.cancel_requested = threading.Event()
-        self.escape_hotkey = None
         self.on_capture_callback = on_capture_callback
 
         self.canvas.bind("<ButtonPress-1>", self.on_button_press)
@@ -48,9 +60,8 @@ class RegionSelector:
         self.root.bind("<Escape>", self.cancel)
         self.root.bind_all("<Escape>", self.cancel)
         self.root.protocol("WM_DELETE_WINDOW", self.cancel)
-        self.install_escape_hotkey()
         self.root.after(0, self.focus_overlay)
-        self.root.after(25, self.poll_cancel_request)
+        self.root.after(25, self.poll_keyboard_cancel)
 
     def focus_overlay(self):
         if self.closed:
@@ -60,24 +71,15 @@ class RegionSelector:
         self.root.focus_force()
         self.canvas.focus_set()
 
-    def install_escape_hotkey(self):
-        try:
-            self.escape_hotkey = keyboard.add_hotkey("esc", self.request_cancel, suppress=False)
-        except Exception as exc:
-            print(f"Could not register Escape cancel hook: {exc}")
-
-    def request_cancel(self):
-        self.cancel_requested.set()
-
-    def poll_cancel_request(self):
+    def poll_keyboard_cancel(self):
         if self.closed:
             return
 
-        if self.cancel_requested.is_set():
+        if is_escape_pressed():
             self.cancel()
             return
 
-        self.root.after(25, self.poll_cancel_request)
+        self.root.after(25, self.poll_keyboard_cancel)
 
     def on_button_press(self, event):
         if self.cancelled:
@@ -166,12 +168,6 @@ class RegionSelector:
 
         self.closed = True
         self.root.unbind_all("<Escape>")
-        if self.escape_hotkey is not None:
-            try:
-                keyboard.remove_hotkey(self.escape_hotkey)
-            except Exception:
-                pass
-            self.escape_hotkey = None
         self.root.destroy()
 
     def start(self):
