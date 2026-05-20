@@ -1,4 +1,6 @@
 import tkinter as tk
+import threading
+import keyboard
 import mss
 import mss.tools
 from datetime import datetime
@@ -35,6 +37,9 @@ class RegionSelector:
         self.selection_rect = None
         self.size_label_bg = None
         self.size_label = None
+        self.closed = False
+        self.cancel_requested = threading.Event()
+        self.escape_hotkey = None
         self.on_capture_callback = on_capture_callback
 
         self.canvas.bind("<ButtonPress-1>", self.on_button_press)
@@ -42,7 +47,37 @@ class RegionSelector:
         self.canvas.bind("<ButtonRelease-1>", self.on_button_release)
         self.root.bind("<Escape>", self.cancel)
         self.root.bind_all("<Escape>", self.cancel)
-        self.root.after(0, self.root.focus_force)
+        self.root.protocol("WM_DELETE_WINDOW", self.cancel)
+        self.install_escape_hotkey()
+        self.root.after(0, self.focus_overlay)
+        self.root.after(25, self.poll_cancel_request)
+
+    def focus_overlay(self):
+        if self.closed:
+            return
+
+        self.root.lift()
+        self.root.focus_force()
+        self.canvas.focus_set()
+
+    def install_escape_hotkey(self):
+        try:
+            self.escape_hotkey = keyboard.add_hotkey("esc", self.request_cancel, suppress=False)
+        except Exception as exc:
+            print(f"Could not register Escape cancel hook: {exc}")
+
+    def request_cancel(self):
+        self.cancel_requested.set()
+
+    def poll_cancel_request(self):
+        if self.closed:
+            return
+
+        if self.cancel_requested.is_set():
+            self.cancel()
+            return
+
+        self.root.after(25, self.poll_cancel_request)
 
     def on_button_press(self, event):
         if self.cancelled:
@@ -82,8 +117,8 @@ class RegionSelector:
             return
 
         end_x, end_y = (event.x, event.y)
-        self.root.destroy()
-        
+        self.close()
+
         # Calculate absolute screen coordinates by adding the virtual screen offset
         abs_start_x = self.v_left + self.start_x
         abs_start_y = self.v_top + self.start_y
@@ -123,7 +158,20 @@ class RegionSelector:
 
     def cancel(self, event=None):
         self.cancelled = True
+        self.close()
+
+    def close(self):
+        if self.closed:
+            return
+
+        self.closed = True
         self.root.unbind_all("<Escape>")
+        if self.escape_hotkey is not None:
+            try:
+                keyboard.remove_hotkey(self.escape_hotkey)
+            except Exception:
+                pass
+            self.escape_hotkey = None
         self.root.destroy()
 
     def start(self):
