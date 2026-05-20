@@ -1,5 +1,10 @@
 {
   "hotkey": "ctrl+alt+9",
   "port": 8892,
-  "save_directory": "screenshots"
+  "save_directory": "screenshots",
+  "database_path": "screenshots/gallery.sqlite3",
+  "sharing": {
+    "lan_enabled": false,
+    "copy_after_capture": "local"
+  }
 }

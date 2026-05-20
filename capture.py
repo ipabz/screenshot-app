@@ -2,9 +2,11 @@ import tkinter as tk
 import mss
 import mss.tools
 from datetime import datetime
-import os
+from pathlib import Path
 import pyperclip
-import json
+
+from config_manager import get_database_path, get_lan_base_url, get_local_base_url, load_config
+from gallery_store import GalleryStore
 
 class RegionSelector:
     def __init__(self, on_capture_callback):
@@ -127,36 +129,103 @@ class RegionSelector:
     def start(self):
         self.root.mainloop()
 
+def _capture_urls(config, capture):
+    local_url = f"{get_local_base_url(config)}/captures/{capture['id']}/file"
+    lan_url = None
+    if capture.get("share_token"):
+        lan_url = f"{get_lan_base_url(config)}/s/{capture['share_token']}"
+    return local_url, lan_url
+
+
+def _copy_to_clipboard(url):
+    try:
+        pyperclip.copy(url)
+        return True
+    except Exception as exc:
+        print(f"Could not copy URL to clipboard: {exc}")
+        return False
+
+
 def capture_region(left, top, right, bottom):
-    with open('config.json', 'r') as f:
-        config = json.load(f)
-    
-    save_dir = config.get('save_directory', 'screenshots')
-    port = config.get('port', 8892)
-    
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-        
-    filename = f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-    filepath = os.path.join(save_dir, filename)
-    
+    config = load_config()
+    save_dir = Path(config["save_directory"])
+    save_dir.mkdir(parents=True, exist_ok=True)
+    store = GalleryStore(get_database_path(config))
+
+    captured_at = datetime.now()
+    filename = f"screenshot_{captured_at.strftime('%Y%m%d_%H%M%S_%f')}.png"
+    filepath = save_dir / filename
+    width = right - left
+    height = bottom - top
+
     with mss.mss() as sct:
         # mss uses {top, left, width, height}
-        monitor = {"top": top, "left": left, "width": right - left, "height": bottom - top}
+        monitor = {"top": top, "left": left, "width": width, "height": height}
         sct_img = sct.grab(monitor)
-        mss.tools.to_png(sct_img.rgb, sct_img.size, output=filepath)
-        
-    import socket
-    hostname = socket.gethostname()
-    local_ip = socket.gethostbyname(hostname)
-    url = f"http://{local_ip}:{port}/{filename}"
-    pyperclip.copy(url)
-    print(f"Captured: {filepath}")
-    print(f"URL copied to clipboard: {url}")
+        mss.tools.to_png(sct_img.rgb, sct_img.size, output=str(filepath))
 
-def start_capture_ui():
-    selector = RegionSelector(capture_region)
-    selector.start()
+    capture = store.add_capture(
+        filename=filename,
+        path=filepath,
+        width=width,
+        height=height,
+        file_size=filepath.stat().st_size,
+        created_at=captured_at.isoformat(timespec="seconds"),
+    )
+
+    copy_preference = config["sharing"]["copy_after_capture"]
+    if config["sharing"]["lan_enabled"] and copy_preference == "lan":
+        capture = store.set_share_enabled(capture["id"], True) or capture
+
+    local_url, lan_url = _capture_urls(config, capture)
+    copied_url = None
+    clipboard_copied = False
+    if copy_preference == "lan" and lan_url:
+        copied_url = lan_url
+    elif copy_preference != "none":
+        copied_url = local_url
+
+    if copied_url:
+        clipboard_copied = _copy_to_clipboard(copied_url)
+
+    print(f"Captured: {filepath}")
+    if copied_url:
+        print(f"URL copied to clipboard: {copied_url}")
+
+    result = dict(capture)
+    result.update(
+        {
+            "local_url": local_url,
+            "lan_url": lan_url,
+            "copied_url": copied_url,
+            "clipboard_copied": clipboard_copied,
+        }
+    )
+    return result
+
+
+def start_capture_ui(on_complete=None, on_error=None):
+    def handle_capture(left, top, right, bottom):
+        try:
+            result = capture_region(left, top, right, bottom)
+        except Exception as exc:
+            if on_error:
+                on_error(exc)
+            else:
+                print(f"Capture failed: {exc}")
+            return
+
+        if on_complete:
+            on_complete(result)
+
+    try:
+        selector = RegionSelector(handle_capture)
+        selector.start()
+    except Exception as exc:
+        if on_error:
+            on_error(exc)
+        else:
+            print(f"Capture failed: {exc}")
 
 if __name__ == "__main__":
     start_capture_ui()

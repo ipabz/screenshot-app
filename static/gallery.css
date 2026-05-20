@@ -1,0 +1,218 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #f6f7f9;
+  color: #17202a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #f6f7f9;
+}
+
+button,
+select {
+  font: inherit;
+}
+
+button {
+  min-height: 36px;
+  border: 1px solid #c9d2dc;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #17202a;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: #168aad;
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 3px solid #94d2bd;
+  outline-offset: 2px;
+}
+
+button.primary,
+.header-actions button:first-child {
+  background: #0f6f8f;
+  border-color: #0f6f8f;
+  color: #ffffff;
+}
+
+button.danger {
+  color: #9b1c31;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.app-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px clamp(16px, 4vw, 40px) 16px;
+  border-bottom: 1px solid #d9e0e7;
+  background: #ffffff;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(1.7rem, 4vw, 2.4rem);
+  line-height: 1.1;
+  letter-spacing: 0;
+}
+
+.status-text {
+  margin: 8px 0 0;
+  color: #596775;
+  font-size: 0.95rem;
+}
+
+.header-actions,
+.capture-actions,
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.app-shell {
+  width: min(1440px, 100%);
+  margin: 0 auto;
+  padding: 18px clamp(16px, 4vw, 40px) 40px;
+}
+
+.settings-row {
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.toggle-control,
+.select-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  color: #344452;
+}
+
+.toggle-control input {
+  width: 18px;
+  height: 18px;
+}
+
+.select-control select {
+  min-height: 36px;
+  border: 1px solid #c9d2dc;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #17202a;
+  padding: 0 32px 0 10px;
+}
+
+.message {
+  min-height: 22px;
+  margin-bottom: 12px;
+  color: #0d5c63;
+}
+
+.message.error {
+  color: #9b1c31;
+}
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.capture-card {
+  overflow: hidden;
+  border: 1px solid #d9e0e7;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.capture-link {
+  display: block;
+  aspect-ratio: 16 / 10;
+  background: #e9eef3;
+}
+
+.capture-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.capture-meta {
+  padding: 12px 12px 4px;
+}
+
+.capture-title {
+  margin: 0;
+  font-size: 0.98rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.capture-details {
+  margin: 6px 0 0;
+  color: #596775;
+  font-size: 0.88rem;
+}
+
+.capture-actions {
+  padding: 10px 12px 12px;
+}
+
+.empty-state {
+  display: grid;
+  place-items: center;
+  min-height: 280px;
+  text-align: center;
+  color: #596775;
+}
+
+.empty-state h2 {
+  margin: 0;
+  color: #17202a;
+  font-size: 1.2rem;
+}
+
+.empty-state p {
+  margin: 8px 0 0;
+}
+
+@media (max-width: 680px) {
+  .app-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .header-actions button,
+  .settings-row,
+  .settings-row label,
+  .settings-row select {
+    width: 100%;
+  }
+
+  .header-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+}

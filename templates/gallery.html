@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Screenshots</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='gallery.css') }}">
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <h1>Screenshots</h1>
+        <p id="serverStatus" class="status-text">Loading...</p>
+      </div>
+      <div class="header-actions">
+        <button id="captureButton" type="button">Capture</button>
+        <button id="refreshButton" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <section class="settings-row" aria-label="Gallery settings">
+        <label class="toggle-control">
+          <input id="lanToggle" type="checkbox">
+          <span>LAN sharing</span>
+        </label>
+        <label class="select-control">
+          <span>Copy after capture</span>
+          <select id="copyPreference">
+            <option value="local">Local link</option>
+            <option value="lan">LAN link</option>
+            <option value="none">Nothing</option>
+          </select>
+        </label>
+      </section>
+
+      <div id="message" class="message" role="status"></div>
+      <section id="gallery" class="gallery-grid" aria-live="polite"></section>
+      <section id="emptyState" class="empty-state" hidden>
+        <h2>No screenshots yet</h2>
+        <p>Use the tray hotkey or the capture button.</p>
+      </section>
+    </main>
+
+    <template id="captureCardTemplate">
+      <article class="capture-card">
+        <a class="capture-link" target="_blank" rel="noopener">
+          <img class="capture-image" alt="">
+        </a>
+        <div class="capture-meta">
+          <h2 class="capture-title"></h2>
+          <p class="capture-details"></p>
+        </div>
+        <div class="capture-actions">
+          <button class="copy-local-button" type="button">Copy local</button>
+          <button class="share-button" type="button">Share</button>
+          <button class="copy-lan-button" type="button">Copy LAN</button>
+          <button class="delete-button danger" type="button">Delete</button>
+        </div>
+      </article>
+    </template>
+
+    <script src="{{ url_for('static', filename='gallery.js') }}"></script>
+  </body>
+</html>
