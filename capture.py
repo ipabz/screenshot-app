@@ -1,5 +1,6 @@
 import tkinter as tk
 import ctypes
+import threading
 import mss
 import mss.tools
 from datetime import datetime
@@ -8,6 +9,7 @@ import pyperclip
 
 from config_manager import get_database_path, get_lan_base_url, get_local_base_url, load_config
 from gallery_store import GalleryStore
+from preview import show_capture_preview
 
 
 VK_ESCAPE = 0x1B
@@ -24,8 +26,11 @@ def is_escape_pressed():
     return USER32 is not None and bool(USER32.GetAsyncKeyState(VK_ESCAPE) & 0x8000)
 
 
+CAPTURE_SESSION_LOCK = threading.Lock()
+
+
 class RegionSelector:
-    def __init__(self, on_capture_callback):
+    def __init__(self, on_capture_callback=None):
         self.root = tk.Tk()
         self.root.attributes('-alpha', 0.55)
         self.root.attributes("-topmost", True)
@@ -52,6 +57,7 @@ class RegionSelector:
         self.size_label_bg = None
         self.size_label = None
         self.closed = False
+        self.selection = None
         self.on_capture_callback = on_capture_callback
 
         self.canvas.bind("<ButtonPress-1>", self.on_button_press)
@@ -133,7 +139,9 @@ class RegionSelector:
         bottom = max(abs_start_y, abs_end_y)
         
         if right - left > 0 and bottom - top > 0:
-            self.on_capture_callback(left, top, right, bottom)
+            self.selection = (left, top, right, bottom)
+            if self.on_capture_callback:
+                self.on_capture_callback(left, top, right, bottom)
 
     def update_selection(self, cur_x, cur_y):
         self.canvas.coords(self.selection_shadow, self.start_x, self.start_y, cur_x, cur_y)
@@ -172,6 +180,7 @@ class RegionSelector:
 
     def start(self):
         self.root.mainloop()
+        return self.selection
 
 def _capture_urls(config, capture):
     local_url = f"{get_local_base_url(config)}/captures/{capture['id']}/file"
@@ -248,28 +257,33 @@ def capture_region(left, top, right, bottom):
     return result
 
 
-def start_capture_ui(on_complete=None, on_error=None):
-    def handle_capture(left, top, right, bottom):
-        try:
-            result = capture_region(left, top, right, bottom)
-        except Exception as exc:
-            if on_error:
-                on_error(exc)
-            else:
-                print(f"Capture failed: {exc}")
-            return
-
-        if on_complete:
-            on_complete(result)
+def start_capture_ui(on_complete=None, on_error=None, show_preview=True):
+    if not CAPTURE_SESSION_LOCK.acquire(blocking=False):
+        message = "A capture is already in progress."
+        if on_error:
+            on_error(RuntimeError(message))
+        else:
+            print(message)
+        return
 
     try:
-        selector = RegionSelector(handle_capture)
-        selector.start()
+        selector = RegionSelector()
+        selection = selector.start()
+        if selection is None:
+            return
+
+        result = capture_region(*selection)
+        if on_complete:
+            on_complete(result)
+        if show_preview:
+            show_capture_preview(result)
     except Exception as exc:
         if on_error:
             on_error(exc)
         else:
             print(f"Capture failed: {exc}")
+    finally:
+        CAPTURE_SESSION_LOCK.release()
 
 if __name__ == "__main__":
     start_capture_ui()

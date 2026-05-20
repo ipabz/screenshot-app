@@ -7,6 +7,7 @@ from PIL import Image
 
 from config_manager import load_config, save_config
 from gallery_store import GalleryStore
+from preview import get_preview_url, image_file_to_dib_bytes
 from server import create_app
 
 
@@ -55,6 +56,28 @@ class GalleryStoreTests(unittest.TestCase):
             self.assertFalse(unshared["share_enabled"])
             self.assertIsNone(unshared["share_token"])
             self.assertIsNone(store.get_by_token(shared["share_token"]))
+
+
+class PreviewTests(unittest.TestCase):
+    def test_get_preview_url_prefers_lan_url_when_available(self):
+        self.assertEqual(
+            get_preview_url({"local_url": "http://127.0.0.1/image", "lan_url": "http://lan/image"}),
+            "http://lan/image",
+        )
+        self.assertEqual(
+            get_preview_url({"local_url": "http://127.0.0.1/image", "lan_url": None}),
+            "http://127.0.0.1/image",
+        )
+
+    def test_image_file_to_dib_bytes_removes_bmp_file_header(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "capture.png"
+            Image.new("RGB", (8, 6), "#ffffff").save(image_path)
+
+            dib_bytes = image_file_to_dib_bytes(image_path)
+
+        self.assertNotEqual(dib_bytes[:2], b"BM")
+        self.assertEqual(int.from_bytes(dib_bytes[:4], "little"), 40)
 
 
 class ServerTests(unittest.TestCase):
