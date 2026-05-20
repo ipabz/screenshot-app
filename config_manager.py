@@ -13,7 +13,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "hotkey": "ctrl+shift+s",
     "port": 8892,
     "save_directory": "screenshots",
-    "database_path": "screenshots/gallery.sqlite3",
+    "database_path": "gallery.sqlite3",
     "sharing": {
         "lan_enabled": False,
         "copy_after_capture": "local",

@@ -30,7 +30,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config["hotkey"], "ctrl+alt+9")
         self.assertEqual(config["port"], 8892)
         self.assertEqual(config["save_directory"], "shots")
-        self.assertEqual(config["database_path"], "screenshots/gallery.sqlite3")
+        self.assertEqual(config["database_path"], "gallery.sqlite3")
         self.assertEqual(
             config["sharing"], {"lan_enabled": False, "copy_after_capture": "local"}
         )
