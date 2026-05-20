@@ -8,6 +8,7 @@ from PIL import Image
 from config_manager import load_config, save_config
 from gallery_store import GalleryStore
 from preview import (
+    annotation_text_size,
     fit_image_size,
     format_file_size,
     get_preview_url,
@@ -74,6 +75,11 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(fit_image_size((1600, 900), (800, 800)), (800, 450))
         self.assertEqual(fit_image_size((900, 1600), (800, 800)), (450, 800))
 
+    def test_annotation_text_size_uses_stroke_setting(self):
+        self.assertEqual(annotation_text_size(3), 22)
+        self.assertEqual(annotation_text_size(5), 28)
+        self.assertEqual(annotation_text_size(8), 36)
+
     def test_get_preview_url_prefers_lan_url_when_available(self):
         self.assertEqual(
             get_preview_url({"local_url": "http://127.0.0.1/image", "lan_url": "http://lan/image"}),
@@ -110,6 +116,30 @@ class PreviewTests(unittest.TestCase):
         )
 
         self.assertNotEqual(annotated.getpixel((5, 5)), (255, 255, 255))
+
+    def test_render_annotations_draws_text(self):
+        image = Image.new("RGB", (160, 80), "#ffffff")
+        annotated = render_annotations(
+            image,
+            [
+                {
+                    "tool": "text",
+                    "color": "#ef4444",
+                    "width": 5,
+                    "position": (10, 10),
+                    "text": "Note",
+                    "font_size": 28,
+                }
+            ],
+        )
+
+        changed_pixels = sum(
+            1
+            for x in range(0, 80)
+            for y in range(0, 60)
+            if annotated.getpixel((x, y)) != (255, 255, 255)
+        )
+        self.assertGreater(changed_pixels, 20)
 
 
 class ServerTests(unittest.TestCase):

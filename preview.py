@@ -5,8 +5,9 @@ import math
 from io import BytesIO
 from pathlib import Path
 import tkinter as tk
+from tkinter import simpledialog
 
-from PIL import Image, ImageDraw, ImageTk
+from PIL import Image, ImageDraw, ImageFont, ImageTk
 import pyperclip
 
 
@@ -33,12 +34,18 @@ ANNOTATION_TOOLS = {
     "pen": "Draw",
     "rectangle": "Box",
     "arrow": "Arrow",
+    "text": "Text",
 }
 ANNOTATION_COLORS = ["#ef4444", "#f59e0b", "#2563eb", "#111827"]
 ANNOTATION_WIDTHS = {
     "S": 3,
     "M": 5,
     "L": 8,
+}
+ANNOTATION_TEXT_SIZES = {
+    3: 22,
+    5: 28,
+    8: 36,
 }
 
 try:
@@ -164,10 +171,51 @@ def draw_arrow(draw, start, end, color, width):
     draw.polygon([end, left, right], fill=color)
 
 
+def get_annotation_font(size):
+    for font_name in ("segoeui.ttf", "arial.ttf"):
+        try:
+            return ImageFont.truetype(font_name, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def annotation_text_size(width):
+    return ANNOTATION_TEXT_SIZES.get(width, ANNOTATION_TEXT_SIZES[5])
+
+
+def draw_text_annotation(draw, annotation):
+    text = annotation["text"]
+    position = annotation["position"]
+    color = annotation["color"]
+    font = get_annotation_font(annotation["font_size"])
+    padding = max(6, annotation["font_size"] // 4)
+
+    text_bbox = draw.textbbox(position, text, font=font)
+    background_bbox = (
+        text_bbox[0] - padding,
+        text_bbox[1] - padding,
+        text_bbox[2] + padding,
+        text_bbox[3] + padding,
+    )
+    draw.rounded_rectangle(
+        background_bbox,
+        radius=max(4, padding // 2),
+        fill="#ffffff",
+        outline=color,
+        width=max(2, annotation["width"] // 2),
+    )
+    draw.text(position, text, fill=color, font=font)
+
+
 def draw_annotation(draw, annotation):
     tool = annotation["tool"]
     color = annotation["color"]
     width = annotation["width"]
+
+    if tool == "text":
+        draw_text_annotation(draw, annotation)
+        return
 
     if tool == "pen":
         points = annotation["points"]
@@ -587,6 +635,10 @@ class CapturePreview:
         color = annotation["color"]
         width = max(2, int(annotation["width"] * self.display_scale))
 
+        if tool == "text":
+            self.draw_canvas_text(annotation)
+            return
+
         if tool == "pen":
             points = [self.image_to_canvas_point(point) for point in annotation["points"]]
             if len(points) > 1:
@@ -600,6 +652,33 @@ class CapturePreview:
             self.preview_canvas.create_rectangle(*start, *end, outline=color, width=width)
         elif tool == "arrow":
             self.preview_canvas.create_line(*start, *end, fill=color, width=width, arrow=tk.LAST)
+
+    def draw_canvas_text(self, annotation):
+        x, y = self.image_to_canvas_point(annotation["position"])
+        font_size = max(10, int(annotation["font_size"] * self.display_scale))
+        padding = max(4, int(font_size / 4))
+        text_id = self.preview_canvas.create_text(
+            x,
+            y,
+            text=annotation["text"],
+            fill=annotation["color"],
+            font=("Segoe UI", font_size, "bold"),
+            anchor="nw",
+        )
+        text_bbox = self.preview_canvas.bbox(text_id)
+        if text_bbox is None:
+            return
+
+        background_id = self.preview_canvas.create_rectangle(
+            text_bbox[0] - padding,
+            text_bbox[1] - padding,
+            text_bbox[2] + padding,
+            text_bbox[3] + padding,
+            fill="#ffffff",
+            outline=annotation["color"],
+            width=max(1, int(annotation["width"] * self.display_scale / 2)),
+        )
+        self.preview_canvas.tag_lower(background_id, text_id)
 
     def image_to_canvas_point(self, point):
         origin_x, origin_y = self.image_origin
@@ -625,6 +704,10 @@ class CapturePreview:
         point = self.canvas_to_image_point(event.x, event.y)
         if point is None:
             self.current_annotation = None
+            return
+
+        if self.active_tool == "text":
+            self.add_text_annotation(point)
             return
 
         if self.active_tool == "pen":
@@ -669,10 +752,31 @@ class CapturePreview:
     def annotation_has_size(self, annotation):
         if annotation["tool"] == "pen":
             return len(annotation["points"]) > 1
+        if annotation["tool"] == "text":
+            return bool(annotation["text"].strip())
 
         start = annotation["start"]
         end = annotation["end"]
         return abs(start[0] - end[0]) > 2 or abs(start[1] - end[1]) > 2
+
+    def add_text_annotation(self, point):
+        text = simpledialog.askstring(
+            "Add text",
+            "Text",
+            parent=self.root,
+        )
+        if not text or not text.strip():
+            return
+
+        self.annotations.append(
+            self.new_annotation(
+                position=point,
+                text=text.strip(),
+                font_size=annotation_text_size(self.active_width),
+            )
+        )
+        self.set_status("Text annotation added")
+        self.redraw_preview()
 
     def get_output_image(self):
         return render_annotations(self.original_image, self.annotations)
